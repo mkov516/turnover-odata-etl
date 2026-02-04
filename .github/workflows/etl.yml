@@ -30,6 +30,7 @@ jobs:
           SAP_PASSWORD: ${{ secrets.SAP_PASSWORD }}
           SAP_ODATA_PATH: ${{ secrets.SAP_ODATA_PATH }}
           SAP_CODES_QUERY: ${{ secrets.SAP_QUERY }}
+          SAP_MAIN_QUERY: ${{ secrets.SAP_MAIN_QUERY }}
           OUTPUT_CSV: ${{ secrets.OUTPUT_CSV }}
         run: python src/etl.py
 
