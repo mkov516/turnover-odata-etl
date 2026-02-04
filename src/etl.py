@@ -29,7 +29,8 @@ SAP_BASE_URL = "https://my438923.businessbydesign.cloud.sap"
 # SAP_BASE_URL   = os.getenv("SAP_BASE_URL", "https://my438923.businessbydesign.cloud.sap").rstrip("/")
 
 SAP_ODATA_PATH = os.getenv("SAP_ODATA_PATH", "/sap/byd/odata/ana_businessanalytics_analytics.svc").strip("/")
-SAP_CODE_QUERY = os.getenv("SAP_CODE_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
+SAP_CODES_QUERY = os.getenv("SAP_CODES_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
+SAP_MAIN_QUERY = os.getenv("SAP_MAIN_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
 OUTPUT_CSV     = os.getenv("OUTPUT_CSV", "data/employee_data.csv")
 
 SAP_USERNAME   = os.getenv("SAP_USERNAME")
@@ -96,7 +97,7 @@ def _extract_results_and_next(data: Dict) -> Tuple[List[Dict], Optional[str]]:
 
 # ---------------------- Core ETL ----------------------
 def fetch_distinct_access_codes(top: int = 10000) -> List[str]:
-    url = _entity_url(SAP_QUERY)
+    url = _entity_url(SAP_CODES_QUERY)
     params = {"$select": "C0CHAR_STRUCTURE", "$top": str(top)}
     data = _get(url, params)
     results, _ = _extract_results_and_next(data)
@@ -107,7 +108,7 @@ def fetch_distinct_access_codes(top: int = 10000) -> List[str]:
 
 def fetch_rows_for_access_code(code: str, top_per_page: int = 5000) -> List[Dict]:
     """Fetch all rows for a code, following server-driven paging via __next/skiptoken."""
-    base_url = _entity_url(SAP_QUERY)
+    base_url = _entity_url(SAP_CODES_QUERY)
     select = ",".join(SELECT_FIELDS)
 
     # Escape single quotes *before* using in the f-string
