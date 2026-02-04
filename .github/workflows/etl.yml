@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
 
-# Prevent overlapping runs from fighting over git push
 concurrency:
   group: odata-etl-main
   cancel-in-progress: false
@@ -20,7 +19,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # IMPORTANT for pull --rebase
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,12 +45,22 @@ jobs:
         env:
           OUTPUT_CSV: ${{ secrets.OUTPUT_CSV }}
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Always sync first to avoid "rejected (fetch first)"
+          # Stash the generated CSV (and any other changes) so we can pull/rebase cleanly
+          git add -A
+          git stash push -m "pre-rebase changes" || true
+
+          # Sync with remote (no dirty working tree now)
           git pull --rebase origin main
 
+          # Re-apply our generated file changes
+          git stash pop || true
+
+          # Commit and push (if there are changes)
           git add "${OUTPUT_CSV}"
           git commit -m "Update CSV from workflow" || echo "No changes to commit"
           git push origin main
