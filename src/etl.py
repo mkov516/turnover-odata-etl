@@ -21,22 +21,25 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+# ---------------------- Helpers ----------------------
+def env_or_default(key: str, default: str) -> str:
+    """Return env var if set and non-empty; otherwise return default."""
+    v = os.getenv(key)
+    return v.strip() if v and v.strip() else default
+
 # ---------------------- Config ----------------------
-# TEMPORARY: hardcode base URL to avoid secret formatting issue
-SAP_BASE_URL = "https://my438923.businessbydesign.cloud.sap"
+# You can hardcode if you want, but this will work with the secret too.
+SAP_BASE_URL   = env_or_default("SAP_BASE_URL", "https://my438923.businessbydesign.cloud.sap").rstrip("/")
 
-# If/when secrets are good, replace the line above with:
-# SAP_BASE_URL   = os.getenv("SAP_BASE_URL", "https://my438923.businessbydesign.cloud.sap").rstrip("/")
-
-SAP_ODATA_PATH = os.getenv("SAP_ODATA_PATH", "/sap/byd/odata/ana_businessanalytics_analytics.svc").strip("/")
-SAP_CODES_QUERY = os.getenv("SAP_CODES_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
-SAP_MAIN_QUERY = os.getenv("SAP_MAIN_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
-OUTPUT_CSV     = os.getenv("OUTPUT_CSV", "data/employee_data.csv")
+SAP_ODATA_PATH  = env_or_default("SAP_ODATA_PATH", "/sap/byd/odata/ana_businessanalytics_analytics.svc").strip("/")
+SAP_CODES_QUERY = env_or_default("SAP_CODES_QUERY", "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
+SAP_MAIN_QUERY  = env_or_default("SAP_MAIN_QUERY",  "RPZDA829C3EFFC649C58434CCQueryResults").strip("/")
+OUTPUT_CSV      = env_or_default("OUTPUT_CSV", "data/employee_data.csv")
 
 SAP_USERNAME   = os.getenv("SAP_USERNAME")
 SAP_PASSWORD   = os.getenv("SAP_PASSWORD")
 
-REQUEST_PAUSE = float(os.getenv("REQUEST_PAUSE", "0.2"))  # seconds between calls
+REQUEST_PAUSE = float(env_or_default("REQUEST_PAUSE", "0.2"))  # seconds between calls
 
 SESSION = requests.Session()
 SESSION.headers.update({
@@ -48,7 +51,7 @@ SESSION.headers.update({
 SELECT_FIELDS = [
     "FCABSENCE_TIME","UCABSENCE_TIME","C0DATEFROM","C0DATETO","CEMPLOYEE_UUID","TEMPLOYEE_UUID",
     "RCHEADCOUNT","FCHEADCOUNT","UCHEADCOUNT","FCPLANNED_TIME","UCPLANNED_TIME","CPROJECT_UUID","TPROJECT_UUID",
-    "FCRECORDED_TIME","UCRECORDED_TIME","RCCOMPLIANCE_RATE","FCCOMPLIANCE_RATE","UCCOMPLIANCE_RATE",
+    "FCRECORDED_TIME","UCRECORDED_TIME","RCCOMPLIANCE_RATE","FCCCOMPLIANCE_RATE","UCCOMPLIANCE_RATE",
     "KCABSENCE_TIME","KCHEADCOUNT","KCPLANNED_TIME","KCRECORDED_TIME","KCCOMPLIANCE_RATE","C0CHAR_STRUCTURE"
 ]
 
@@ -63,24 +66,26 @@ RENAME_MAP = {
     "KCRECORDED_TIME": "KC_Recorded Time",
 }
 
-# ---------------------- Helpers ----------------------
+# ---------------------- URL / OData helpers ----------------------
 def _auth() -> Optional[HTTPBasicAuth]:
     if SAP_USERNAME and SAP_PASSWORD:
         return HTTPBasicAuth(SAP_USERNAME, SAP_PASSWORD)
     return None
 
 def _root_url() -> str:
-    return f"{SAP_BASE_URL}/{SAP_ODATA_PATH}".rstrip("/")
+    return f"{SAP_BASE_URL.rstrip('/')}/{SAP_ODATA_PATH.strip('/')}".rstrip("/")
 
 def _entity_url(entity: str) -> str:
-    return f"{_root_url()}/{entity}".rstrip("/")
+    return f"{_root_url()}/{entity.strip('/')}".rstrip("/")
 
 def _get(url: str, params: Dict[str, str]) -> Dict:
     """GET wrapper with basic auth, error handling, and JSON parsing."""
     resp = SESSION.get(url, params=params, auth=_auth(), timeout=60)
     if not resp.ok:
-        logging.error("HTTP %s for %s params=%s\nBody: %s",
-                      resp.status_code, url, params, resp.text[:1200])
+        logging.error(
+            "HTTP %s for %s params=%s\nBody: %s",
+            resp.status_code, url, params, resp.text[:2000]
+        )
         resp.raise_for_status()
     return resp.json()
 
@@ -108,10 +113,10 @@ def fetch_distinct_access_codes(top: int = 10000) -> List[str]:
 
 def fetch_rows_for_access_code(code: str, top_per_page: int = 5000) -> List[Dict]:
     """Fetch all rows for a code, following server-driven paging via __next/skiptoken."""
-    base_url = _entity_url(SAP_CODES_QUERY)
+    base_url = _entity_url(SAP_MAIN_QUERY)
     select = ",".join(SELECT_FIELDS)
 
-    # Escape single quotes *before* using in the f-string
+    # Escape single quotes for OData filter
     filter_value = code.replace("'", "''")
 
     params = {
@@ -136,7 +141,7 @@ def fetch_rows_for_access_code(code: str, top_per_page: int = 5000) -> List[Dict
     return all_rows
 
 def _stringify_unhashables(x: Any) -> Any:
-    """Convert dict/list (and other unhashables) to string for deduping."""
+    """Convert dict/list/set (and other unhashables) to string for deduping."""
     if isinstance(x, (dict, list, set)):
         return str(x)
     return x
@@ -144,6 +149,7 @@ def _stringify_unhashables(x: Any) -> Any:
 def run_etl() -> pd.DataFrame:
     codes = fetch_distinct_access_codes()
     all_records: List[Dict] = []
+
     for i, code in enumerate(codes, start=1):
         logging.info("(%d/%d) Fetching code: %s", i, len(codes), code)
         try:
@@ -177,6 +183,12 @@ def main():
     if not (SAP_USERNAME and SAP_PASSWORD):
         logging.warning("SAP_USERNAME/SAP_PASSWORD not set; calls may fail if auth is required.")
     logging.info("Starting SAP OData ETL...")
+
+    logging.info("Using root URL: %s", _root_url())
+    logging.info("Codes entity: %s", SAP_CODES_QUERY)
+    logging.info("Main entity: %s", SAP_MAIN_QUERY)
+    logging.info("Output CSV: %s", OUTPUT_CSV)
+
     df = run_etl()
     out_path = OUTPUT_CSV
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
