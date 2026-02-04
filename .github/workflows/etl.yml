@@ -1,0 +1,43 @@
+name: Run OData ETL
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily at 06:00 UTC
+  workflow_dispatch:       # allow manual runs
+
+permissions:
+  contents: write          # needed if you want to commit CSV back
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ETL script
+        env:
+          SAP_BASE_URL: ${{ secrets.SAP_BASE_URL }}
+          SAP_USERNAME: ${{ secrets.SAP_USERNAME }}
+          SAP_PASSWORD: ${{ secrets.SAP_PASSWORD }}
+          SAP_ODATA_PATH: ${{ secrets.SAP_ODATA_PATH }}
+          SAP_QUERY: ${{ secrets.SAP_QUERY }}
+          OUTPUT_CSV: ${{ secrets.OUTPUT_CSV }}
+        run: python src/etl.py
+
+      - name: Commit updated CSV
+        if: success()  # only push if the ETL ran successfully
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/sap_analytics_export.csv
+          git commit -m "Update CSV from workflow" || echo "No changes to commit"
+          git push
