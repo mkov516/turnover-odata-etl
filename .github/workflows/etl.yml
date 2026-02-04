@@ -3,10 +3,15 @@ name: Run OData ETL
 on:
   schedule:
     - cron: "0 6 * * *"   # daily at 06:00 UTC
-  workflow_dispatch:       # allow manual runs
+  workflow_dispatch:
 
 permissions:
-  contents: write          # needed if you want to commit CSV back
+  contents: write
+
+# Prevent overlapping runs from fighting over git push
+concurrency:
+  group: odata-etl-main
+  cancel-in-progress: false
 
 jobs:
   run-etl:
@@ -14,6 +19,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # IMPORTANT for pull --rebase
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,12 +42,16 @@ jobs:
         run: python src/etl.py
 
       - name: Commit updated CSV
-        if: success()  # only push if the ETL ran successfully
+        if: success()
         env:
           OUTPUT_CSV: ${{ secrets.OUTPUT_CSV }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Always sync first to avoid "rejected (fetch first)"
+          git pull --rebase origin main
+
           git add "${OUTPUT_CSV}"
           git commit -m "Update CSV from workflow" || echo "No changes to commit"
-          git push
+          git push origin main
